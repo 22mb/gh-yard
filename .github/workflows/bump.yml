@@ -1,0 +1,100 @@
+name: Bump version
+
+# Manual only, run from the Actions tab to start a release. It opens the version
+# bump PR; merging that PR to `main` is what triggers release.yml.
+#
+# No gates run here. `main` is already green — ci.yml runs on every push to it —
+# and this only rewrites one version string. release.yml runs the full set again
+# before it builds anything, which is the check that actually guards the release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: "SemVer level to bump"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      dry_run:
+        description: "Compute the next version, but do not open a PR"
+        required: false
+        type: boolean
+        default: false
+
+# Least privilege at the top level; the job opts into exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bump:
+    name: Bump version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # `contents: write` pushes the branch, `pull-requests: write` opens the PR.
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # persist-credentials stays at its default (true): this job pushes a branch.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Bump version
+        id: bump
+        env:
+          LEVEL: ${{ inputs.level }}
+        run: |
+          current=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          IFS=. read -r major minor patch <<< "$current"
+          case "$LEVEL" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          version="$major.$minor.$patch"
+          # `^version = ` appears exactly once in Cargo.toml (the package
+          # section); dependencies use the `name = "x.y.z"` inline form.
+          sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+          # Sync the package's own entry in Cargo.lock without moving any
+          # dependency versions.
+          cargo check --quiet
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "$current -> $version"
+          git --no-pager diff -- Cargo.toml Cargo.lock
+
+      - name: Open pull request
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          branch="release/v$VERSION"
+          git switch -c "$branch"
+          git commit -m "chore(release): bump to $VERSION" -- Cargo.toml Cargo.lock
+          # Force-push so a re-run for the same version updates the branch in place.
+          git push --force origin "$branch"
+
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          cat > /tmp/pr-body.md <<EOF
+          Bumps the version to \`$VERSION\`. **Merging this to \`main\` triggers the release workflow.**
+
+          ci.yml starts out waiting for approval on this PR, because the pull request was opened by Actions rather than a person — approve it from the Actions tab to run the checks. They have already passed on \`main\` regardless, and release.yml re-runs them before building.
+
+          Opened by the [Bump version]($run_url) workflow.
+          EOF
+          gh pr create --title "chore(release): bump to $VERSION" --body-file /tmp/pr-body.md

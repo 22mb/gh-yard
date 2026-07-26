@@ -1,0 +1,191 @@
+name: Release
+
+# Triggers:
+# - workflow_dispatch: explicit, manual release from the Actions tab.
+# - push to main when Cargo.toml changes: a merged version bump auto-publishes.
+# Both paths converge on the same jobs. The lightweight `check` job no-ops if a
+# release already exists for the current version, so unrelated Cargo.toml edits
+# (dependency bumps, metadata tweaks) and re-runs cost only the check.
+#
+# The tag (v<version>) is created by the release itself, at publish time — it is
+# an output of this flow, not its trigger.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+
+# Least privilege at the top level; jobs opt into exactly what they need.
+permissions: {}
+
+# A release must not be cancelled midway — a partial release is worse than a queued one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check release status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve version and check release
+        id: v
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            publish=false
+            echo "Release v$version already exists; nothing to publish."
+          else
+            publish=true
+            echo "Release v$version not found; will publish."
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  # Re-run the exact gates ci.yml enforces — a release must never outrun them.
+  gates:
+    name: Release gates
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Lint, format, and test
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo fmt --check
+          cargo test
+
+  build:
+    name: Build (${{ matrix.asset }})
+    needs: [check, gates]
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            asset: darwin-arm64
+          - runner: macos-14
+            target: x86_64-apple-darwin
+            asset: darwin-amd64
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: linux-amd64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up toolchain
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename per gh's naming convention
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/gh-yard \
+             "dist/gh-yard_v${VERSION}_${{ matrix.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/*
+
+  release:
+    name: Publish release
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Required for: tag + release creation (contents), Sigstore signing
+    # (id-token), and build provenance attestations (attestations).
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The runner is linux-amd64, so this binary runs natively: catch a binary
+      # that builds but dies on launch, and a version that drifted from the tag.
+      - name: Smoke test (linux-amd64)
+        run: |
+          chmod +x "dist/gh-yard_v${VERSION}_linux-amd64"
+          test "$("dist/gh-yard_v${VERSION}_linux-amd64" --version)" = "gh-yard $VERSION"
+
+      - name: Generate SHA256 checksums
+        working-directory: dist
+        run: |
+          for f in gh-yard_*; do
+            sha256sum "$f" > "$f.sha256"
+          done
+
+      # Build provenance attestation (Sigstore) for binaries and their checksums.
+      # Makes the assets verifiable via `gh release verify-asset` / the attestation
+      # API: proof they were built by this workflow from this commit.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: dist/gh-yard_*
+
+      # Create as a draft targeting the exact commit we built ($GITHUB_SHA), not
+      # main HEAD — otherwise a commit landing on main during the build window
+      # would make the tag point at a different commit than the binaries. A draft
+      # mints no tag and keeps assets mutable, so a mid-upload failure leaves only
+      # an orphan draft instead of a permanent partial public release. Flipping
+      # --draft=false is the single atomic moment the tag is cut.
+      - name: Create GitHub Release
+        run: |
+          # Drop any orphan draft from a failed prior run so the re-run is
+          # self-healing. Only a draft can exist here: a published release would
+          # have made the check job short-circuit before this job ran.
+          gh release delete "v$VERSION" --yes 2>/dev/null || true
+          gh release create "v$VERSION" dist/* --draft --target "$GITHUB_SHA" --generate-notes
+          gh release edit "v$VERSION" --draft=false

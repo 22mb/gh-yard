@@ -1,0 +1,3 @@
+/target
+# gh extension install . が読むローカルビルドの置き場
+/gh-yard
