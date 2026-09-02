@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # Majors stay out of the group so they arrive as their own PR.
+      non-major:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Tokyo
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      non-major:
+        patterns: ["*"]
+        update-types: [minor, patch]
