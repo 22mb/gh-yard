@@ -2,33 +2,6 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, RawFd};
 
-/// Returns the number of rows of the terminal.
-///
-/// crossterm's `terminal::size()` looks at stdout, which can fail when stdout
-/// is a pipe as in `$(gh yard)`. Query the opened /dev/tty directly instead.
-pub fn rows(tty: &File) -> Option<u16> {
-    #[repr(C)]
-    struct WinSize {
-        rows: libc::c_ushort,
-        cols: libc::c_ushort,
-        x: libc::c_ushort,
-        y: libc::c_ushort,
-    }
-
-    let mut size = WinSize {
-        rows: 0,
-        cols: 0,
-        x: 0,
-        y: 0,
-    };
-    // SAFETY: the fd belongs to an open File; size is the struct ioctl expects.
-    let ret = unsafe { libc::ioctl(tty.as_raw_fd(), libc::TIOCGWINSZ, &raw mut size) };
-    if ret != 0 || size.rows == 0 {
-        return None;
-    }
-    Some(size.rows)
-}
-
 /// Points stdout at the terminal while the TUI is running.
 ///
 /// ratatui's inline viewport queries the cursor position on startup, but the

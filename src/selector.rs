@@ -5,7 +5,7 @@ use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -57,7 +57,12 @@ pub fn run(repos: &[Repo]) -> Result<Outcome, String> {
         .write(true)
         .open("/dev/tty")
         .map_err(|e| format!("cannot open terminal (/dev/tty): {e}"))?;
-    let rows = tty::rows(&tty).unwrap_or(24);
+    // crossterm reads the size from /dev/tty and only falls back to stdout
+    // when /dev/tty is missing, so this works while stdout is a pipe.
+    let rows = match terminal_size() {
+        Ok((_, rows)) if rows > 0 => rows,
+        _ => 24,
+    };
     // Widen before multiplying: rows >= 1639 would overflow u16.
     let height =
         ((rows as u32 * HEIGHT_RATIO as u32 / 100) as u16).clamp(MIN_HEIGHT, rows.max(MIN_HEIGHT));
