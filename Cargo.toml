@@ -1,6 +1,6 @@
 [package]
 name = "gh-yard"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Pick a repository with fuzzy search and print its path — a gh extension that replaces ghq + fzf"
 repository = "https://github.com/22mb/gh-yard"
