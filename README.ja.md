@@ -77,16 +77,20 @@ git config --global yard.root ~/ghq
 
 ## 開発
 
+CI は pull request ごとに次のチェックを実行します。push する前に手元でも通しておきます。
+
 ```
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
 cargo test
+```
+
+手元のビルドを gh extension として使うには、release バイナリへのシンボリックリンクをリポジトリ直下に置き、そこからローカルインストールします。
+
+```
 cargo build --release
-```
-
-手元のビルドを gh extension として使うには、バイナリをリポジトリ直下に置いてローカルインストールします。
-
-```
-cargo build --release && cp target/release/gh-yard .
+ln -s target/release/gh-yard gh-yard
 gh extension install .
 ```
 
-以降は `cargo build --release && cp target/release/gh-yard .` だけで反映されます。
+以降は `cargo build --release` だけで反映されます。リンクはビルドし直したバイナリを指し続けます。

@@ -77,16 +77,20 @@ git config --global yard.root ~/ghq
 
 ## Development
 
+CI runs these checks on every pull request; run them before pushing:
+
 ```
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
 cargo test
+```
+
+To use a local build as the gh extension, link the release binary into the repository root and install from there:
+
+```
 cargo build --release
-```
-
-To use a local build as the gh extension, place the binary at the repository root and install from there:
-
-```
-cargo build --release && cp target/release/gh-yard .
+ln -s target/release/gh-yard gh-yard
 gh extension install .
 ```
 
-After that, `cargo build --release && cp target/release/gh-yard .` is all it takes to pick up changes.
+After that, `cargo build --release` alone picks up changes: the link keeps pointing at the freshly built binary.
