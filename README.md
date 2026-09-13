@@ -4,7 +4,7 @@
 
 # gh-yard
 
-A gh extension that picks a repository with fuzzy search and prints its path to stdout. Replaces ghq + fzf with a single binary.
+A gh extension that picks a repository with fuzzy search and prints its path to stdout. It folds the ghq + fzf workflow into a single binary.
 
 ## Installation
 
@@ -94,3 +94,7 @@ gh extension install .
 ```
 
 After that, `cargo build --release` alone picks up changes: the link keeps pointing at the freshly built binary.
+
+## Acknowledgements
+
+gh-yard follows the workflow that [ghq](https://github.com/x-motemen/ghq) and [fzf](https://github.com/junegunn/fzf) established: keep repositories in one fixed layout and pick one by fuzzy search. Thank you to both projects for years of daily use.
