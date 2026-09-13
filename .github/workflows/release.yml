@@ -79,9 +79,9 @@ jobs:
 
       - name: Lint, format, and test
         run: |
-          cargo clippy --all-targets -- -D warnings
+          cargo clippy --locked --all-targets -- -D warnings
           cargo fmt --check
-          cargo test
+          cargo test --locked
 
   build:
     name: Build (${{ matrix.asset }})
@@ -116,8 +116,10 @@ jobs:
       - name: Set up toolchain
         run: rustup target add ${{ matrix.target }}
 
+      # --locked: build exactly the committed Cargo.lock; drift is an error,
+      # not a silent update.
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
 
       - name: Rename per gh's naming convention
         run: |
