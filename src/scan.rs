@@ -8,7 +8,9 @@ pub struct Repo {
     pub rel: String,
 }
 
-/// Collects directories containing `.git` under the root.
+/// Collects directories containing a `.git` entry under the root. A `.git`
+/// file counts too, so worktrees are found and, like any repository, are
+/// not descended into.
 ///
 /// - Does not follow symlinks
 /// - Silently skips unreadable directories
@@ -28,19 +30,14 @@ pub fn scan(root: &Path) -> Vec<Repo> {
         let mut is_repo = false;
 
         for entry in entries.flatten() {
-            let file_type = match entry.file_type() {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
-            // file_type does not follow links, so symlinks drop out here.
-            if !file_type.is_dir() {
-                continue;
-            }
             if entry.file_name() == ".git" {
                 is_repo = true;
                 break;
             }
-            subdirs.push(entry.path());
+            // file_type does not follow links, so symlinks drop out here.
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                subdirs.push(entry.path());
+            }
         }
 
         if is_repo {
@@ -114,6 +111,17 @@ mod tests {
         // A repository inside a repository (vendor / submodule) stays hidden.
         mkrepo(tmp.path(), "github.com/foo/outer/vendor/inner");
         assert_eq!(rels(tmp.path()), ["github.com/foo/outer"]);
+    }
+
+    #[test]
+    fn git_file_marks_worktree_and_stops_descent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let wt = tmp.path().join("github.com/foo/wt");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(wt.join(".git"), "gitdir: /elsewhere/.git/worktrees/wt\n").unwrap();
+        // Anything below a worktree stays hidden, as inside a repository.
+        mkrepo(tmp.path(), "github.com/foo/wt/vendor/inner");
+        assert_eq!(rels(tmp.path()), ["github.com/foo/wt"]);
     }
 
     #[test]
