@@ -4,7 +4,7 @@
 
 # gh-yard
 
-リポジトリを fuzzy 検索で選び、そのパスを標準出力に出す gh extension。ghq + fzf を単一バイナリで置き換えます。
+リポジトリを fuzzy 検索で選び、そのパスを標準出力に出す gh extension。ghq + fzf の使い方を単一バイナリにまとめたものです。
 
 ## インストール
 
@@ -94,3 +94,7 @@ gh extension install .
 ```
 
 以降は `cargo build --release` だけで反映されます。リンクはビルドし直したバイナリを指し続けます。
+
+## 謝辞
+
+gh-yard は、[ghq](https://github.com/x-motemen/ghq) と [fzf](https://github.com/junegunn/fzf) が確立した使い方をそのまま受け継いでいます。リポジトリを決まった配置に置き、fuzzy 検索で選ぶ使い方です。毎日使ってきた 2 つのプロジェクトに感謝します。
