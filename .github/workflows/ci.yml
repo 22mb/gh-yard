@@ -51,9 +51,21 @@ jobs:
       - name: Format check
         run: cargo fmt --check
 
+  # Tests run on both supported platforms: macOS is the primary one, and the
+  # terminal code (/dev/tty, dup2, raw mode) is OS-specific. Each leg is its
+  # own status check, so the ruleset's required checks must list both names.
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.name }})
+    strategy:
+      # Show both results; a failure on one OS must not hide the other's.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-latest
+          - name: macOS
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     permissions:
       contents: read

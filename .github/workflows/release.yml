@@ -62,12 +62,21 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-  # Re-run the exact gates ci.yml enforces — a release must never outrun them.
+  # Re-run the gates ci.yml enforces, on the same platforms — a release must
+  # never outrun them.
   gates:
-    name: Release gates
+    name: Release gates (${{ matrix.name }})
     needs: check
     if: needs.check.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-latest
+          - name: macOS
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
