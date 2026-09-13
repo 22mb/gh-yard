@@ -1,4 +1,4 @@
-# Layout of the notes that release.yml generates with
+# Layout of the notes that workflows/release.yml generates with
 # `gh release create --generate-notes`. Categories are matched in order and
 # `*` only catches what earlier categories did not, so the first one excludes
 # Dependabot's `dependencies` label explicitly and those PRs land in the last
