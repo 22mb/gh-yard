@@ -2,6 +2,9 @@ name: CI
 
 # Lint, format-check, and test on every PR and on pushes to main.
 # Keeps the default branch green before a release tag is ever cut (see release.yml).
+#
+# `--locked` makes cargo fail instead of silently rewriting Cargo.lock when
+# Cargo.toml has drifted from it, so only the committed lockfile is ever checked.
 
 on:
   pull_request:
@@ -33,7 +36,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Lint
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   format:
     name: Format check
@@ -48,9 +51,21 @@ jobs:
       - name: Format check
         run: cargo fmt --check
 
+  # Tests run on both supported platforms: macOS is the primary one, and the
+  # terminal code (/dev/tty, dup2, raw mode) is OS-specific. Each leg is its
+  # own status check, so the ruleset's required checks must list both names.
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.name }})
+    strategy:
+      # Show both results; a failure on one OS must not hide the other's.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-latest
+          - name: macOS
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -59,4 +74,4 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Test
-        run: cargo test
+        run: cargo test --locked
