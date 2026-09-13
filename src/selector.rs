@@ -50,7 +50,18 @@ impl Drop for RawModeGuard {
     }
 }
 
-pub fn run(repos: &[Repo]) -> Result<Outcome, String> {
+/// Opens the selector with `query` already typed. A query that leaves
+/// exactly one candidate is answered without touching the terminal, so
+/// `gh yard zod` works as a plain lookup whenever it can.
+pub fn run(repos: &[Repo], query: &str) -> Result<Outcome, String> {
+    let mut state = State::new(repos, query);
+    if !query.is_empty()
+        && state.hits.len() == 1
+        && let Some(repo) = state.selected_repo()
+    {
+        return Ok(Outcome::Selected(repo.abs.to_string_lossy().into_owned()));
+    }
+
     // Open read-write: the cursor-position query writes to this fd.
     let tty = OpenOptions::new()
         .read(true)
@@ -82,7 +93,7 @@ pub fn run(repos: &[Repo]) -> Result<Outcome, String> {
 
     let result = match terminal {
         Ok(mut terminal) => {
-            let outcome = event_loop(&mut terminal, repos);
+            let outcome = event_loop(&mut terminal, &mut state);
             // Erase the screen on exit (inline viewport: only the viewport
             // and below are cleared).
             let _ = terminal.clear();
@@ -104,10 +115,8 @@ pub fn run(repos: &[Repo]) -> Result<Outcome, String> {
 
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stderr>>,
-    repos: &[Repo],
+    state: &mut State,
 ) -> Result<Outcome, String> {
-    let mut state = State::new(repos);
-
     loop {
         terminal
             .draw(|frame| state.render(frame))
@@ -155,11 +164,11 @@ struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    fn new(repos: &'a [Repo]) -> Self {
+    fn new(repos: &'a [Repo], query: &str) -> Self {
         let mut state = Self {
             repos,
-            query: String::new(),
-            qcursor: 0,
+            query: query.to_string(),
+            qcursor: query.chars().count(),
             hits: Vec::new(),
             cursor: 0,
             offset: 0,
@@ -451,7 +460,7 @@ mod tests {
     #[test]
     fn insert_at_cursor_middle() {
         let repos = repos(&["github.com/a/yard"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "ard");
         state.handle(ctrl('a'));
         type_str(&mut state, "y");
@@ -462,7 +471,7 @@ mod tests {
     #[test]
     fn backspace_removes_cjk_before_cursor() {
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "日本語");
         state.handle(key(KeyCode::Backspace));
         assert_eq!(state.query, "日本");
@@ -472,7 +481,7 @@ mod tests {
     #[test]
     fn delete_at_cursor_removes_cjk() {
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "日本語");
         state.handle(ctrl('a'));
         state.handle(key(KeyCode::Delete));
@@ -485,7 +494,7 @@ mod tests {
         // Regression: the word boundary was computed as byte position + 1,
         // which split multi-byte whitespace (U+3000) and panicked.
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "ab\u{3000}cd");
         state.handle(ctrl('w'));
         assert_eq!(state.query, "ab\u{3000}");
@@ -495,7 +504,7 @@ mod tests {
     #[test]
     fn ctrl_w_deletes_word_before_cursor_only() {
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "foo/bar");
         state.handle(ctrl('a'));
         for _ in 0..4 {
@@ -509,7 +518,7 @@ mod tests {
     #[test]
     fn ctrl_u_deletes_before_cursor_only() {
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "日本語abc");
         state.handle(key(KeyCode::Left));
         state.handle(ctrl('u'));
@@ -520,7 +529,7 @@ mod tests {
     #[test]
     fn cursor_movement_clamps_at_edges() {
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "ab");
         state.handle(key(KeyCode::Right));
         assert_eq!(state.qcursor, 2);
@@ -532,7 +541,7 @@ mod tests {
     #[test]
     fn width_before_cursor_counts_wide_chars_as_two() {
         let repos = repos(&["github.com/a/b"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "日a");
         assert_eq!(state.width_before_cursor(), 3);
     }
@@ -540,16 +549,35 @@ mod tests {
     #[test]
     fn filter_matches_and_selects() {
         let repos = repos(&["github.com/a/apple", "github.com/a/yard"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "yard");
         assert_eq!(state.hits.len(), 1);
         assert_eq!(state.selected_repo().unwrap().rel, "github.com/a/yard");
     }
 
     #[test]
+    fn initial_query_is_typed_with_cursor_at_end() {
+        let repos = repos(&["github.com/a/apple", "github.com/a/yard"]);
+        let mut state = State::new(&repos, "ya");
+        assert_eq!(state.qcursor, 2);
+        assert_eq!(state.hits.len(), 1);
+        type_str(&mut state, "rd");
+        assert_eq!(state.query, "yard");
+    }
+
+    #[test]
+    fn run_answers_a_unique_query_without_a_terminal() {
+        let repos = repos(&["github.com/a/apple", "github.com/a/yard"]);
+        match run(&repos, "yard") {
+            Ok(Outcome::Selected(path)) => assert_eq!(path, "/root/github.com/a/yard"),
+            _ => panic!("expected the single match to be selected"),
+        }
+    }
+
+    #[test]
     fn filter_matches_cjk() {
         let repos = repos(&["github.com/a/日本語メモ", "github.com/a/other"]);
-        let mut state = State::new(&repos);
+        let mut state = State::new(&repos, "");
         type_str(&mut state, "日本");
         assert_eq!(state.hits.len(), 1);
         assert_eq!(

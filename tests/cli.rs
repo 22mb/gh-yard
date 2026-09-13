@@ -360,13 +360,62 @@ fn create_without_spec_is_error() {
     assert_eq!(out.status.code(), Some(2));
 }
 
+// ---- query ----
+//
+// Only queries that narrow the list to one repository are covered: that
+// path answers before the selector opens /dev/tty. Any other query would
+// open the selector, which needs a terminal.
+
+#[test]
+fn query_with_single_match_prints_path_without_terminal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    mkrepo(&root, "github.com/foo/zod");
+    mkrepo(&root, "github.com/foo/apple");
+
+    let out = run(tmp.path(), Some(&root), &["zod"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out).trim_end(),
+        root.join("github.com/foo/zod").to_str().unwrap()
+    );
+}
+
+#[test]
+fn query_words_are_joined() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    mkrepo(&root, "github.com/foo/zod");
+    mkrepo(&root, "github.com/bar/zod");
+
+    // "bar zod" narrows to one repository; "zod" alone would match both.
+    let out = run(tmp.path(), Some(&root), &["bar", "zod"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out).trim_end(),
+        root.join("github.com/bar/zod").to_str().unwrap()
+    );
+}
+
+#[test]
+fn query_with_no_repositories_exits_1() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("empty");
+    fs::create_dir_all(&root).unwrap();
+
+    let out = run(tmp.path(), Some(&root), &["zod"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+}
+
 // ---- misc ----
 
 #[test]
-fn unknown_subcommand_is_error() {
+fn unknown_flag_is_error() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = run(tmp.path(), Some(tmp.path()), &["bogus"]);
+    let out = run(tmp.path(), Some(tmp.path()), &["--bogus"]);
     assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("--bogus"));
 }
 
 #[test]
