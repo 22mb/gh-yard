@@ -2,8 +2,12 @@
 # `gh release create --generate-notes`. Categories are matched in order and
 # `*` only catches what earlier categories did not, so the first one excludes
 # Dependabot's `dependencies` label explicitly and those PRs land in the last
-# section instead of burying the actual changes.
+# section instead of burying the actual changes. The version bump PR that
+# bump.yml opens as github-actions[bot] is pure mechanics, so it is left out.
 changelog:
+  exclude:
+    authors:
+      - "github-actions[bot]"
   categories:
     - title: Changes
       labels:
