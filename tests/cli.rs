@@ -360,13 +360,75 @@ fn create_without_spec_is_error() {
     assert_eq!(out.status.code(), Some(2));
 }
 
+// ---- query ----
+//
+// Only queries that narrow the list to one repository are covered: that
+// path answers before the selector opens /dev/tty. Any other query would
+// open the selector, which needs a terminal.
+
+#[test]
+fn query_with_single_match_prints_path_without_terminal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    mkrepo(&root, "github.com/foo/zod");
+    mkrepo(&root, "github.com/foo/apple");
+
+    let out = run(tmp.path(), Some(&root), &["-q", "zod"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out).trim_end(),
+        root.join("github.com/foo/zod").to_str().unwrap()
+    );
+}
+
+#[test]
+fn query_value_may_contain_spaces() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    mkrepo(&root, "github.com/foo/zod");
+    mkrepo(&root, "github.com/bar/zod");
+
+    // "bar zod" narrows to one repository; "zod" alone would match both.
+    let out = run(tmp.path(), Some(&root), &["--query", "bar zod"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out).trim_end(),
+        root.join("github.com/bar/zod").to_str().unwrap()
+    );
+}
+
+#[test]
+fn query_with_no_repositories_exits_1() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("empty");
+    fs::create_dir_all(&root).unwrap();
+
+    let out = run(tmp.path(), Some(&root), &["-q", "zod"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+}
+
+#[test]
+fn query_flag_takes_exactly_one_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    for args in [&["-q"][..], &["-q", "a", "b"][..]] {
+        let out = run(tmp.path(), Some(tmp.path()), args);
+        assert_eq!(out.status.code(), Some(2), "args: {args:?}");
+        assert_eq!(stdout(&out), "", "args: {args:?}");
+    }
+}
+
 // ---- misc ----
 
 #[test]
 fn unknown_subcommand_is_error() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = run(tmp.path(), Some(tmp.path()), &["bogus"]);
-    assert_eq!(out.status.code(), Some(2));
+    // A bare word is not a query (that is `-q`), so it stays an error.
+    for arg in ["bogus", "--bogus"] {
+        let out = run(tmp.path(), Some(tmp.path()), &[arg]);
+        assert_eq!(out.status.code(), Some(2), "arg: {arg}");
+        assert!(stderr(&out).contains(arg), "arg: {arg}");
+    }
 }
 
 #[test]

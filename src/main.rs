@@ -18,7 +18,8 @@ const USAGE: &str = "\
 gh yard — pick a repository and print its path
 
 Usage:
-  gh yard                        open the selector and print the chosen repository's absolute path
+  gh yard [-q <query>]           open the selector and print the chosen repository's absolute path;
+                                 with a query it starts filtered, and a single match is printed directly
   gh yard list [-p|--full-path]  print repositories, one per line
   gh yard get <spec>             clone and print the path
   gh yard create <spec>          create a local repository (git init) and print the path
@@ -43,7 +44,13 @@ fn main() -> ExitCode {
 
 fn run(args: &[String]) -> Result<u8, String> {
     match args.first().map(String::as_str) {
-        None => select(),
+        None => select(""),
+        Some("-q" | "--query") => {
+            let [_, query] = args else {
+                return Err(format!("-q takes exactly one query\n\n{USAGE}"));
+            };
+            select(query)
+        }
         Some("list") => list(&args[1..]),
         Some("get") => get(&args[1..]),
         Some("create") => create(&args[1..]),
@@ -63,7 +70,7 @@ fn run(args: &[String]) -> Result<u8, String> {
     }
 }
 
-fn select() -> Result<u8, String> {
+fn select(query: &str) -> Result<u8, String> {
     let root = root::resolve()?;
     let repos = scan::scan(&root);
     if repos.is_empty() {
@@ -71,7 +78,7 @@ fn select() -> Result<u8, String> {
         return Ok(EXIT_NONE);
     }
 
-    match selector::run(&repos)? {
+    match selector::run(&repos, query)? {
         selector::Outcome::Selected(path) => {
             println!("{path}");
             Ok(EXIT_OK)

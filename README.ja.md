@@ -18,7 +18,7 @@ gh extension install 22mb/gh-yard
 
 | コマンド | 動作 |
 |---|---|
-| `gh yard` | セレクタを開き、選んだリポジトリの絶対パスを出力する |
+| `gh yard [-q <query>]` | セレクタを開き、選んだリポジトリの絶対パスを出力する。`-q` / `--query` でクエリを渡すと絞り込んだ状態で開き、一致が 1 件だけならセレクタを開かずにそのパスを出力する |
 | `gh yard list [-p]` | リポジトリを 1 行 1 件で出力する。`-p` / `--full-path` で絶対パス |
 | `gh yard get <spec>` | クローンし、そのパスを出力する |
 | `gh yard create <spec>` | ローカルにリポジトリを作成 (`git init`) し、そのパスを出力する |
@@ -30,16 +30,22 @@ cd やエディタ起動は持ちません。パスを受け取って自分で�
 
 ```fish
 # fish
-abbr d 'set -l d (gh yard); and cd $d'
-abbr c 'set -l d (gh yard); and code $d'
+function d
+    set -l d (gh yard -q "$argv"); and cd $d
+end
+function c
+    set -l d (gh yard -q "$argv"); and code $d
+end
 abbr gg 'gh yard get'
 ```
 
 ```zsh
 # zsh / bash
-alias d='d=$(gh yard) && cd "$d"'
-alias c='d=$(gh yard) && code "$d"'
+d() { local d; d=$(gh yard -q "$*") && cd "$d"; }
+c() { local d; d=$(gh yard -q "$*") && code "$d"; }
 ```
+
+`d` だけならセレクタが開きます。`d zod` は `zod` に一致するリポジトリが 1 件ならそこへ直接移動し、複数あれば `zod` で絞り込んだセレクタが開きます。
 
 いったん変数で受けるのは、中止したときに何も起きないようにするためです。`cd (gh yard)` と直接書くと、中止して出力が空になったときに引数なしの `cd` と同じ扱いになり、ホームディレクトリへ移動してしまいます。
 

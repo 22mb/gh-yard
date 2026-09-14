@@ -18,7 +18,7 @@ Requires only [gh](https://cli.github.com/) and git. Supported platforms: macOS 
 
 | Command | What it does |
 |---|---|
-| `gh yard` | Open the selector and print the chosen repository's absolute path |
+| `gh yard [-q <query>]` | Open the selector and print the chosen repository's absolute path. With `-q` / `--query` the selector starts filtered, and if exactly one repository matches, its path is printed without opening the selector |
 | `gh yard list [-p]` | Print repositories, one per line. `-p` / `--full-path` for absolute paths |
 | `gh yard get <spec>` | Clone and print the path |
 | `gh yard create <spec>` | Create a local repository (`git init`) and print the path |
@@ -30,16 +30,22 @@ gh-yard does not cd or launch an editor. It prints a path; you wire it up yourse
 
 ```fish
 # fish
-abbr d 'set -l d (gh yard); and cd $d'
-abbr c 'set -l d (gh yard); and code $d'
+function d
+    set -l d (gh yard -q "$argv"); and cd $d
+end
+function c
+    set -l d (gh yard -q "$argv"); and code $d
+end
 abbr gg 'gh yard get'
 ```
 
 ```zsh
 # zsh / bash
-alias d='d=$(gh yard) && cd "$d"'
-alias c='d=$(gh yard) && code "$d"'
+d() { local d; d=$(gh yard -q "$*") && cd "$d"; }
+c() { local d; d=$(gh yard -q "$*") && code "$d"; }
 ```
+
+`d` alone opens the selector. `d zod` jumps straight to the only repository matching `zod`, or opens the selector filtered to `zod` when there are several.
 
 Capturing into a variable first keeps an abort from doing anything. Writing `cd (gh yard)` directly would run a bare `cd` on abort — the output is empty — and drop you in your home directory.
 
