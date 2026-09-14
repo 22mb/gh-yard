@@ -18,7 +18,7 @@ const USAGE: &str = "\
 gh yard — pick a repository and print its path
 
 Usage:
-  gh yard [query]                open the selector and print the chosen repository's absolute path;
+  gh yard [-q <query>]           open the selector and print the chosen repository's absolute path;
                                  with a query it starts filtered, and a single match is printed directly
   gh yard list [-p|--full-path]  print repositories, one per line
   gh yard get <spec>             clone and print the path
@@ -45,6 +45,12 @@ fn main() -> ExitCode {
 fn run(args: &[String]) -> Result<u8, String> {
     match args.first().map(String::as_str) {
         None => select(""),
+        Some("-q" | "--query") => {
+            let [_, query] = args else {
+                return Err(format!("-q takes exactly one query\n\n{USAGE}"));
+            };
+            select(query)
+        }
         Some("list") => list(&args[1..]),
         Some("get") => get(&args[1..]),
         Some("create") => create(&args[1..]),
@@ -60,9 +66,7 @@ fn run(args: &[String]) -> Result<u8, String> {
             println!("gh-yard {}", env!("CARGO_PKG_VERSION"));
             Ok(EXIT_OK)
         }
-        Some(other) if other.starts_with('-') => Err(format!("unknown flag: {other}\n\n{USAGE}")),
-        // Anything else is a query for the selector; several words form one query.
-        Some(_) => select(&args.join(" ")),
+        Some(other) => Err(format!("unknown subcommand: {other}\n\n{USAGE}")),
     }
 }
 

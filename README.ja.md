@@ -18,7 +18,7 @@ gh extension install 22mb/gh-yard
 
 | コマンド | 動作 |
 |---|---|
-| `gh yard [query]` | セレクタを開き、選んだリポジトリの絶対パスを出力する。query を渡すと絞り込んだ状態で開き、一致が 1 件だけならセレクタを開かずにそのパスを出力する |
+| `gh yard [-q <query>]` | セレクタを開き、選んだリポジトリの絶対パスを出力する。`-q` / `--query` でクエリを渡すと絞り込んだ状態で開き、一致が 1 件だけならセレクタを開かずにそのパスを出力する |
 | `gh yard list [-p]` | リポジトリを 1 行 1 件で出力する。`-p` / `--full-path` で絶対パス |
 | `gh yard get <spec>` | クローンし、そのパスを出力する |
 | `gh yard create <spec>` | ローカルにリポジトリを作成 (`git init`) し、そのパスを出力する |
@@ -31,18 +31,18 @@ cd やエディタ起動は持ちません。パスを受け取って自分で�
 ```fish
 # fish
 function d
-    set -l d (gh yard $argv); and cd $d
+    set -l d (gh yard -q "$argv"); and cd $d
 end
 function c
-    set -l d (gh yard $argv); and code $d
+    set -l d (gh yard -q "$argv"); and code $d
 end
 abbr gg 'gh yard get'
 ```
 
 ```zsh
 # zsh / bash
-d() { local d; d=$(gh yard "$@") && cd "$d"; }
-c() { local d; d=$(gh yard "$@") && code "$d"; }
+d() { local d; d=$(gh yard -q "$*") && cd "$d"; }
+c() { local d; d=$(gh yard -q "$*") && code "$d"; }
 ```
 
 `d` だけならセレクタが開きます。`d zod` は `zod` に一致するリポジトリが 1 件ならそこへ直接移動し、複数あれば `zod` で絞り込んだセレクタが開きます。
