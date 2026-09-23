@@ -4,7 +4,7 @@
 
 # gh-yard
 
-リポジトリを fuzzy 検索で選び、そのパスを標準出力に出す gh extension。ghq + fzf の使い方を単一バイナリにまとめたものです。
+リポジトリを fuzzy 検索で選択し、そのパスを標準出力に書き出す gh extension です。ghq と fzf を組み合わせた使い方を、単一のバイナリにまとめています。
 
 ## インストール
 
@@ -12,21 +12,21 @@
 gh extension install 22mb/gh-yard
 ```
 
-前提は [gh](https://cli.github.com/) と git のみ。対応プラットフォームは macOS / Linux (amd64 / arm64)。ビルド済みバイナリが入るので、Rust 環境は不要です。
+前提となるのは [gh](https://cli.github.com/) と git だけです。対応プラットフォームは macOS と Linux (amd64 / arm64) です。ビルド済みのバイナリがインストールされるため、Rust の環境は必要ありません。
 
 ## 使い方
 
 | コマンド | 動作 |
 |---|---|
-| `gh yard [-q <query>]` | セレクタを開き、選んだリポジトリの絶対パスを出力する。`-q` / `--query` でクエリを渡すと絞り込んだ状態で開き、一致が 1 件だけならセレクタを開かずにそのパスを出力する |
-| `gh yard list [-p]` | リポジトリを 1 行 1 件で出力する。`-p` / `--full-path` で絶対パス |
-| `gh yard get <spec>` | クローンし、そのパスを出力する |
-| `gh yard create <spec>` | ローカルにリポジトリを作成 (`git init`) し、そのパスを出力する |
-| `gh yard root` | ルートディレクトリを出力する |
+| `gh yard [-q <query>]` | セレクタを開き、選択したリポジトリの絶対パスを出力。`-q` / `--query` でクエリを渡すと絞り込んだ状態でセレクタを開き、一致が 1 件だけのときはセレクタを開かずにそのパスを出力 |
+| `gh yard list [-p]` | リポジトリを 1 行に 1 件ずつ出力。`-p` / `--full-path` を指定すると絶対パスで出力 |
+| `gh yard get <spec>` | リポジトリをクローンし、そのパスを出力 |
+| `gh yard create <spec>` | ローカルにリポジトリを作成 (`git init`) し、そのパスを出力 |
+| `gh yard root` | ルートディレクトリを出力 |
 
-`<spec>` は `owner/repo`（ホストは github.com）、`host/owner/repo`、URL (`https://` / `ssh://` / `git@host:owner/repo`) の 3 形式。GitLab のサブグループのような深い階層もそのまま扱えます。
+`<spec>` には、`owner/repo` (ホストは github.com)、`host/owner/repo`、URL (`https://` / `ssh://` / `git@host:owner/repo`) の 3 形式を指定できます。GitLab のサブグループのような深い階層も、そのまま扱えます。
 
-cd やエディタ起動は持ちません。パスを受け取って自分で組みます。
+gh yard 自体は cd やエディタ起動の機能を持たないため、出力されたパスを受け取り、ユーザー側で次のように組み立てます。
 
 ```fish
 # fish
@@ -45,29 +45,29 @@ d() { local d; d=$(gh yard -q "$*") && cd "$d"; }
 c() { local d; d=$(gh yard -q "$*") && code "$d"; }
 ```
 
-`d` だけならセレクタが開きます。`d zod` は `zod` に一致するリポジトリが 1 件ならそこへ直接移動し、複数あれば `zod` で絞り込んだセレクタが開きます。
+引数なしで `d` を実行すると、セレクタが開きます。`d zod` を実行すると、`zod` に一致するリポジトリが 1 件のときはそのディレクトリへ直接移動し、複数あるときは `zod` で絞り込んだ状態のセレクタが開きます。
 
-いったん変数で受けるのは、中止したときに何も起きないようにするためです。`cd (gh yard)` と直接書くと、中止して出力が空になったときに引数なしの `cd` と同じ扱いになり、ホームディレクトリへ移動してしまいます。
+出力をいったん変数で受け取るのは、セレクタを中止したときに何も起きないようにするためです。`cd (gh yard)` と直接書くと、中止して出力が空になった際に引数なしの `cd` と同じ扱いになり、ホームディレクトリへ移動してしまいます。
 
 ## セレクタのキー操作
 
 | キー | 動作 |
 |---|---|
-| `Enter` | 確定 |
+| `Enter` | 選択の確定 |
 | `Esc` / `Ctrl-C` | 中止 |
 | `↑↓` / `Ctrl-P` / `Ctrl-N` / `Ctrl-K` / `Ctrl-J` | 候補の移動 |
 | `←→` / `Ctrl-B` / `Ctrl-F` | 入力カーソルの移動 |
-| `Ctrl-A` / `Ctrl-E` | 行頭 / 行末 |
-| `Backspace` | カーソル前の 1 文字を削除 |
+| `Ctrl-A` / `Ctrl-E` | 行頭・行末への移動 |
+| `Backspace` | カーソルの直前の 1 文字を削除 |
 | `Del` / `Ctrl-D` | カーソル位置の 1 文字を削除 |
-| `Ctrl-U` | カーソルより前をすべて削除 |
-| `Ctrl-W` | カーソル前の単語を削除 |
+| `Ctrl-U` | カーソルより前の文字をすべて削除 |
+| `Ctrl-W` | カーソルの直前の単語を削除 |
 
 ## ルートディレクトリ
 
-`YARD_ROOT` → `git config yard.root` → `~/yard` の順で解決します。レイアウトは `root/host/owner/repo`。
+ルートディレクトリは、「`YARD_ROOT` 環境変数 → `git config yard.root` → `~/yard`」の順で決定されます。リポジトリは `root/host/owner/repo` の構成で配置されます。
 
-既存の ghq の配下をそのまま使う場合は、ルートを指すだけで済みます。
+ghq で管理している既存のディレクトリをそのまま使うときは、次のようにルートをそのディレクトリに設定するだけで済みます。
 
 ```
 git config --global yard.root ~/ghq
@@ -83,7 +83,7 @@ git config --global yard.root ~/ghq
 
 ## 開発
 
-CI は pull request ごとに次のチェックを実行します。push する前に手元でも通しておきます。
+CI では、pull request ごとに次のチェックを実行します。push する前に、手元の環境でもこれらのチェックを通しておいてください。
 
 ```
 cargo clippy --all-targets -- -D warnings
@@ -91,7 +91,7 @@ cargo fmt --check
 cargo test
 ```
 
-手元のビルドを gh extension として使うには、release バイナリへのシンボリックリンクをリポジトリ直下に置き、そこからローカルインストールします。
+手元でビルドしたバイナリを gh extension として使うには、release ビルドのバイナリへのシンボリックリンクをリポジトリの直下に作成し、そのディレクトリからローカルインストールします。
 
 ```
 cargo build --release
@@ -99,8 +99,8 @@ ln -s target/release/gh-yard gh-yard
 gh extension install .
 ```
 
-以降は `cargo build --release` だけで反映されます。リンクはビルドし直したバイナリを指し続けます。
+シンボリックリンクは再ビルドしたバイナリを指し続けるため、以降は `cargo build --release` を実行するだけで変更が反映されます。
 
 ## 謝辞
 
-gh-yard は、[ghq](https://github.com/x-motemen/ghq) と [fzf](https://github.com/junegunn/fzf) が確立した使い方をそのまま受け継いでいます。リポジトリを決まった配置に置き、fuzzy 検索で選ぶ使い方です。毎日使ってきた 2 つのプロジェクトに感謝します。
+gh-yard は、[ghq](https://github.com/x-motemen/ghq) と [fzf](https://github.com/junegunn/fzf) が確立した使い方をそのまま受け継いでいます。それは、リポジトリを決まった構成で配置し、fuzzy 検索で選択するという使い方です。毎日使ってきたこの 2 つのプロジェクトに感謝します。
