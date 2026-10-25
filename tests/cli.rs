@@ -7,8 +7,9 @@
 //! zero-repository early exit is checked).
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_gh-yard");
 
@@ -86,11 +87,61 @@ fn list_empty_root_is_ok_and_silent() {
 }
 
 #[test]
+fn list_closed_pipe_exits_0_without_panicking() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    // Well over the 64 KiB pipe buffer, so the process is still writing when
+    // the read end goes away; a smaller listing would finish before that.
+    for i in 0..1000 {
+        mkrepo(
+            &root,
+            &format!("github.com/owner-with-a-long-name-{i}/repository-with-a-long-name-{i}"),
+        );
+    }
+
+    let mut child = Command::new(BIN)
+        .arg("list")
+        .env("HOME", tmp.path())
+        .env("GIT_CONFIG_GLOBAL", tmp.path().join("gitconfig-test"))
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("YARD_ROOT", &root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Close the read end without reading, as `head` does once it has enough.
+    drop(child.stdout.take());
+    let mut err = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    let status = child.wait().unwrap();
+
+    assert_eq!(status.code(), Some(0), "stderr: {err}");
+    assert!(!err.contains("panicked"), "stderr: {err}");
+}
+
+#[test]
 fn list_unknown_flag_is_error() {
     let tmp = tempfile::tempdir().unwrap();
     let out = run(tmp.path(), Some(tmp.path()), &["list", "--bogus"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("--bogus"));
+}
+
+#[test]
+fn subcommand_help_prints_usage() {
+    let tmp = tempfile::tempdir().unwrap();
+    for sub in ["list", "get", "create", "root"] {
+        for flag in ["-h", "--help"] {
+            let out = run(tmp.path(), Some(tmp.path()), &[sub, flag]);
+            assert_eq!(out.status.code(), Some(0), "{sub} {flag}");
+            assert!(stdout(&out).contains("Usage:"), "{sub} {flag}");
+        }
+    }
 }
 
 // ---- selector (zero-repository early exit only) ----
@@ -281,6 +332,18 @@ fn get_existing_repo_accepts_url_and_scp_specs() {
 }
 
 #[test]
+fn get_directory_without_dot_git_is_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    fs::create_dir_all(root.join("github.com/cli/cli")).unwrap();
+
+    let out = run(tmp.path(), Some(&root), &["get", "cli/cli"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(stderr(&out).contains("not a repository"));
+}
+
+#[test]
 fn get_dotless_three_parts_is_error() {
     let tmp = tempfile::tempdir().unwrap();
     let out = run(tmp.path(), Some(tmp.path()), &["get", "foo/bar/baz"]);
@@ -351,6 +414,20 @@ fn create_dotless_three_parts_is_error() {
     let tmp = tempfile::tempdir().unwrap();
     let out = run(tmp.path(), Some(tmp.path()), &["create", "foo/bar/baz"]);
     assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn create_with_dotdot_component_is_error_and_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    fs::create_dir_all(&root).unwrap();
+
+    // `..` as the first of three or more components used to pass as a host,
+    // so the destination landed outside the root.
+    let out = run(tmp.path(), Some(&root), &["create", "../escaped/x/y"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(!tmp.path().join("escaped").exists());
 }
 
 #[test]

@@ -4,7 +4,9 @@ use std::process::Command;
 
 use crate::spec::Target;
 
-/// Returns the clone destination. Does not clone when it already exists.
+/// Returns the clone destination. Does not clone when it is already a
+/// repository; a destination that exists without `.git` is an error rather
+/// than a silent success.
 pub fn run(root: &Path, target: &Target) -> Result<PathBuf, String> {
     let mut dest = root.join(&target.host);
     for part in &target.path {
@@ -12,7 +14,14 @@ pub fn run(root: &Path, target: &Target) -> Result<PathBuf, String> {
     }
 
     if dest.exists() {
-        return Ok(dest);
+        // A `.git` directory or file (worktree) marks a repository, as in scan.
+        if dest.join(".git").exists() {
+            return Ok(dest);
+        }
+        return Err(format!(
+            "already exists but is not a repository: {}",
+            dest.display()
+        ));
     }
 
     let parent = dest

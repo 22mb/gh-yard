@@ -7,6 +7,7 @@ mod spec;
 mod tty;
 
 use std::env;
+use std::io::{self, Write};
 use std::process::ExitCode;
 
 /// 0: success / 1: aborted or nothing found / 2: error
@@ -51,6 +52,12 @@ fn run(args: &[String]) -> Result<u8, String> {
             };
             select(query)
         }
+        // Before the per-subcommand parsing: `get --help` would otherwise be
+        // read as a spec and `list --help` as an unknown flag.
+        Some("list" | "get" | "create" | "root") if wants_help(&args[1..]) => {
+            print!("{USAGE}");
+            Ok(EXIT_OK)
+        }
         Some("list") => list(&args[1..]),
         Some("get") => get(&args[1..]),
         Some("create") => create(&args[1..]),
@@ -68,6 +75,10 @@ fn run(args: &[String]) -> Result<u8, String> {
         }
         Some(other) => Err(format!("unknown subcommand: {other}\n\n{USAGE}")),
     }
+}
+
+fn wants_help(args: &[String]) -> bool {
+    args.iter().any(|a| a == "-h" || a == "--help")
 }
 
 fn select(query: &str) -> Result<u8, String> {
@@ -97,11 +108,21 @@ fn list(args: &[String]) -> Result<u8, String> {
     }
 
     let root = root::resolve()?;
+    let mut out = io::stdout().lock();
     for repo in scan::scan(&root) {
-        if full_path {
-            println!("{}", repo.abs.display());
+        let written = if full_path {
+            writeln!(out, "{}", repo.abs.display())
         } else {
-            println!("{}", repo.rel);
+            writeln!(out, "{}", repo.rel)
+        };
+        // `println!` would panic here, and with panic = "abort" that kills the
+        // process. A reader that stops early (`list | head`) is not an error.
+        if let Err(e) = written {
+            return if e.kind() == io::ErrorKind::BrokenPipe {
+                Ok(EXIT_OK)
+            } else {
+                Err(format!("cannot write to stdout: {e}"))
+            };
         }
     }
     Ok(EXIT_OK)
