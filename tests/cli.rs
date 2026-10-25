@@ -354,6 +354,20 @@ fn create_dotless_three_parts_is_error() {
 }
 
 #[test]
+fn create_with_dotdot_component_is_error_and_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    fs::create_dir_all(&root).unwrap();
+
+    // `..` as the first of three or more components used to pass as a host,
+    // so the destination landed outside the root.
+    let out = run(tmp.path(), Some(&root), &["create", "../escaped/x/y"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(!tmp.path().join("escaped").exists());
+}
+
+#[test]
 fn create_without_spec_is_error() {
     let tmp = tempfile::tempdir().unwrap();
     let out = run(tmp.path(), Some(tmp.path()), &["create"]);

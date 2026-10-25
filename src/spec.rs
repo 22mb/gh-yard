@@ -80,6 +80,11 @@ fn from_parts(parts: &[String], spec: &str, host_is_explicit: bool) -> Result<Ta
     }
     parts.retain(|p| !p.is_empty());
 
+    // `.` and `..` would resolve the destination outside the root.
+    if parts.iter().any(|p| p == "." || p == "..") {
+        return Err(format!("component must not be `.` or `..`: {spec}"));
+    }
+
     // A leading `-` would be taken as a flag by gh / git when passed through.
     if let Some(bad) = parts.iter().find(|p| p.starts_with('-')) {
         return Err(format!("component must not start with '-': {bad}"));
@@ -176,5 +181,18 @@ mod tests {
     #[test]
     fn single_part_is_error() {
         assert!(parse("cli").is_err());
+    }
+
+    #[test]
+    fn dot_components_are_errors() {
+        for spec in [
+            "../a/b",
+            "a/..",
+            "gitlab.com/../b",
+            "gitlab.com/./b",
+            "../a/b.git",
+        ] {
+            assert!(parse(spec).is_err(), "{spec}");
+        }
     }
 }
