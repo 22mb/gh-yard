@@ -1,6 +1,9 @@
 use std::fs::File;
 use std::io::{self, Write};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, OwnedFd};
+
+use rustix::io::dup;
+use rustix::stdio::dup2_stdout;
 
 /// Points stdout at the terminal while the TUI is running.
 ///
@@ -10,26 +13,14 @@ use std::os::fd::{AsRawFd, RawFd};
 /// guard, `\x1b[6n` would leak into the output captured by `$(gh yard)`,
 /// so fd 1 is swapped out for the duration.
 pub struct StdoutGuard {
-    saved: RawFd,
+    saved: OwnedFd,
 }
 
 impl StdoutGuard {
     pub fn redirect_to(tty: &File) -> Result<Self, String> {
         let _ = io::stdout().flush();
-        // SAFETY: fd 1 is always valid; failure is detected via the return value.
-        let saved = unsafe { libc::dup(libc::STDOUT_FILENO) };
-        if saved < 0 {
-            return Err(format!(
-                "cannot save stdout: {}",
-                io::Error::last_os_error()
-            ));
-        }
-        // SAFETY: tty is an open File; fd 1 is valid.
-        if unsafe { libc::dup2(tty.as_raw_fd(), libc::STDOUT_FILENO) } < 0 {
-            let err = io::Error::last_os_error();
-            unsafe { libc::close(saved) };
-            return Err(format!("cannot redirect stdout: {err}"));
-        }
+        let saved = dup(io::stdout().as_fd()).map_err(|e| format!("cannot save stdout: {e}"))?;
+        dup2_stdout(tty).map_err(|e| format!("cannot redirect stdout: {e}"))?;
         Ok(Self { saved })
     }
 }
@@ -37,10 +28,7 @@ impl StdoutGuard {
 impl Drop for StdoutGuard {
     fn drop(&mut self) {
         let _ = io::stdout().flush();
-        // SAFETY: saved is a valid fd obtained from dup; close it after restoring.
-        unsafe {
-            libc::dup2(self.saved, libc::STDOUT_FILENO);
-            libc::close(self.saved);
-        }
+        // Restore fd 1; `saved` closes itself afterwards.
+        let _ = dup2_stdout(&self.saved);
     }
 }

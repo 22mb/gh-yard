@@ -459,9 +459,9 @@ dependencies = [
 name = "gh-yard"
 version = "0.2.0"
 dependencies = [
- "libc",
  "nucleo-matcher",
  "ratatui",
+ "rustix",
  "tempfile",
  "unicode-segmentation",
  "unicode-width",
