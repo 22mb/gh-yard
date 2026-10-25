@@ -320,6 +320,18 @@ fn get_existing_repo_accepts_url_and_scp_specs() {
 }
 
 #[test]
+fn get_directory_without_dot_git_is_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    fs::create_dir_all(root.join("github.com/cli/cli")).unwrap();
+
+    let out = run(tmp.path(), Some(&root), &["get", "cli/cli"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(stderr(&out).contains("not a repository"));
+}
+
+#[test]
 fn get_dotless_three_parts_is_error() {
     let tmp = tempfile::tempdir().unwrap();
     let out = run(tmp.path(), Some(tmp.path()), &["get", "foo/bar/baz"]);
