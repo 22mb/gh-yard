@@ -184,6 +184,78 @@ mod tests {
     }
 
     #[test]
+    fn http_and_git_schemes_are_accepted() {
+        assert_eq!(
+            ok("http://github.com/cli/cli"),
+            ("github.com".into(), "cli/cli".into())
+        );
+        assert_eq!(
+            ok("git://github.com/cli/cli.git"),
+            ("github.com".into(), "cli/cli".into())
+        );
+    }
+
+    #[test]
+    fn ssh_url_without_user() {
+        assert_eq!(
+            ok("ssh://gitlab.com/group/sub/repo"),
+            ("gitlab.com".into(), "group/sub/repo".into())
+        );
+    }
+
+    #[test]
+    fn scp_form_without_user() {
+        assert_eq!(
+            ok("github.com:cli/cli"),
+            ("github.com".into(), "cli/cli".into())
+        );
+    }
+
+    #[test]
+    fn surrounding_whitespace_and_trailing_slash_are_ignored() {
+        assert_eq!(ok("  cli/cli  "), ("github.com".into(), "cli/cli".into()));
+        assert_eq!(
+            ok(" https://github.com/cli/cli/ "),
+            ("github.com".into(), "cli/cli".into())
+        );
+    }
+
+    #[test]
+    fn dot_git_is_stripped_from_the_last_component_only() {
+        assert_eq!(
+            ok("github.com/own.git/repo.git"),
+            ("github.com".into(), "own.git/repo".into())
+        );
+    }
+
+    #[test]
+    fn host_may_carry_a_port() {
+        let t = parse("https://git.example.com:8443/a/b").unwrap();
+        assert_eq!(t.host, "git.example.com:8443");
+        assert!(!t.is_github());
+        assert_eq!(t.https_url(), "https://git.example.com:8443/a/b");
+    }
+
+    #[test]
+    fn url_with_fewer_than_three_parts_is_error() {
+        assert!(parse("https://github.com/cli").is_err());
+        assert!(parse("git@github.com:cli").is_err());
+    }
+
+    #[test]
+    fn empty_or_blank_spec_is_error() {
+        assert!(parse("").is_err());
+        assert!(parse("   ").is_err());
+    }
+
+    #[test]
+    fn leading_dash_in_any_component_is_error() {
+        assert!(parse("-a/b").is_err());
+        assert!(parse("cli/-x").is_err());
+        assert!(parse("https://github.com/cli/-x").is_err());
+    }
+
+    #[test]
     fn dot_components_are_errors() {
         for spec in [
             "../a/b",
