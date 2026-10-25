@@ -585,4 +585,272 @@ mod tests {
             "github.com/a/日本語メモ"
         );
     }
+
+    // ---- keys ----
+
+    #[test]
+    fn enter_accepts_esc_and_ctrl_c_abort() {
+        let repos = repos(&["github.com/a/b"]);
+        let mut state = State::new(&repos, "");
+        assert!(matches!(state.handle(key(KeyCode::Enter)), Action::Accept));
+        assert!(matches!(state.handle(key(KeyCode::Esc)), Action::Abort));
+        assert!(matches!(state.handle(ctrl('c')), Action::Abort));
+    }
+
+    #[test]
+    fn enter_with_no_hits_has_nothing_selected() {
+        let repos = repos(&["github.com/a/b"]);
+        let mut state = State::new(&repos, "");
+        type_str(&mut state, "zzz");
+        assert!(state.hits.is_empty());
+        assert!(matches!(state.handle(key(KeyCode::Enter)), Action::Accept));
+        assert!(state.selected_repo().is_none());
+    }
+
+    #[test]
+    fn list_cursor_moves_and_clamps_at_both_ends() {
+        let repos = repos(&["github.com/a/x", "github.com/a/y", "github.com/a/z"]);
+        let mut state = State::new(&repos, "");
+        for _ in 0..5 {
+            state.handle(key(KeyCode::Down));
+        }
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/a/z");
+        for _ in 0..5 {
+            state.handle(key(KeyCode::Up));
+        }
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/a/x");
+        state.handle(ctrl('n'));
+        state.handle(ctrl('j'));
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/a/z");
+        state.handle(ctrl('p'));
+        state.handle(ctrl('k'));
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/a/x");
+    }
+
+    #[test]
+    fn typing_resets_list_cursor_to_top() {
+        let repos = repos(&["github.com/a/x", "github.com/a/y"]);
+        let mut state = State::new(&repos, "");
+        state.handle(key(KeyCode::Down));
+        assert_eq!(state.cursor, 1);
+        type_str(&mut state, "a");
+        assert_eq!(state.cursor, 0);
+    }
+
+    #[test]
+    fn editing_at_the_edges_is_a_no_op() {
+        let repos = repos(&["github.com/a/b"]);
+        let mut state = State::new(&repos, "");
+        type_str(&mut state, "ab");
+        state.handle(key(KeyCode::Delete)); // cursor at end
+        state.handle(ctrl('d'));
+        assert_eq!(state.query, "ab");
+        state.handle(key(KeyCode::Home));
+        state.handle(key(KeyCode::Backspace)); // cursor at start
+        state.handle(ctrl('w'));
+        state.handle(ctrl('u'));
+        assert_eq!(state.query, "ab");
+        assert_eq!(state.qcursor, 0);
+    }
+
+    #[test]
+    fn home_end_and_ctrl_b_f_move_the_edit_cursor() {
+        let repos = repos(&["github.com/a/b"]);
+        let mut state = State::new(&repos, "");
+        type_str(&mut state, "abc");
+        state.handle(key(KeyCode::Home));
+        assert_eq!(state.qcursor, 0);
+        state.handle(ctrl('f'));
+        assert_eq!(state.qcursor, 1);
+        state.handle(key(KeyCode::End));
+        assert_eq!(state.qcursor, 3);
+        state.handle(ctrl('b'));
+        assert_eq!(state.qcursor, 2);
+    }
+
+    // ---- filtering ----
+
+    #[test]
+    fn empty_query_lists_everything_in_order_without_highlights() {
+        let repos = repos(&["github.com/a/x", "github.com/a/y", "gitlab.com/b/z"]);
+        let state = State::new(&repos, "");
+        let rels: Vec<&str> = state
+            .hits
+            .iter()
+            .map(|h| repos[h.index].rel.as_str())
+            .collect();
+        assert_eq!(rels, ["github.com/a/x", "github.com/a/y", "gitlab.com/b/z"]);
+        assert!(state.hits.iter().all(|h| h.indices.is_empty()));
+    }
+
+    #[test]
+    fn lowercase_query_matches_uppercase_name() {
+        let repos = repos(&["github.com/a/Yard", "github.com/b/other"]);
+        let state = State::new(&repos, "yard");
+        assert_eq!(state.hits.len(), 1);
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/a/Yard");
+    }
+
+    #[test]
+    fn uppercase_in_query_makes_it_case_sensitive() {
+        let repos = repos(&["github.com/a/yard", "github.com/b/Yard"]);
+        let state = State::new(&repos, "Yard");
+        assert_eq!(state.hits.len(), 1);
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/b/Yard");
+    }
+
+    #[test]
+    fn contiguous_match_ranks_above_scattered_match() {
+        // Sorted order would put a/ first; the score puts the exact name first.
+        let repos = repos(&["github.com/a/y-a-r-d", "github.com/b/yard"]);
+        let state = State::new(&repos, "yard");
+        assert_eq!(state.hits.len(), 2);
+        assert_eq!(state.selected_repo().unwrap().rel, "github.com/b/yard");
+    }
+
+    #[test]
+    fn equal_scores_keep_the_sorted_order() {
+        let repos = repos(&["github.com/a/yard", "github.com/c/yard"]);
+        let state = State::new(&repos, "yard");
+        let rels: Vec<&str> = state
+            .hits
+            .iter()
+            .map(|h| repos[h.index].rel.as_str())
+            .collect();
+        assert_eq!(rels, ["github.com/a/yard", "github.com/c/yard"]);
+    }
+
+    // ---- rendering ----
+
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn draw(state: &mut State, width: u16, height: u16) -> Terminal<TestBackend> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| state.render(frame)).unwrap();
+        terminal
+    }
+
+    /// The row's text. A wide character is followed by a placeholder cell,
+    /// which is skipped so the result reads as displayed.
+    fn row_text(terminal: &Terminal<TestBackend>, y: u16) -> String {
+        use unicode_width::UnicodeWidthStr;
+        let buf = terminal.backend().buffer();
+        let mut text = String::new();
+        let mut x = 0;
+        while x < buf.area.width {
+            let symbol = buf[(x, y)].symbol();
+            text.push_str(symbol);
+            x += symbol.width().max(1) as u16;
+        }
+        text
+    }
+
+    #[test]
+    fn renders_prompt_with_query_and_counter() {
+        let repos = repos(&["github.com/a/apple", "github.com/a/yard"]);
+        let mut state = State::new(&repos, "ya");
+        let terminal = draw(&mut state, 40, 4);
+        let prompt = row_text(&terminal, 0);
+        assert!(prompt.starts_with("> ya"), "{prompt:?}");
+        assert!(prompt.trim_end().ends_with("1/2"), "{prompt:?}");
+    }
+
+    #[test]
+    fn renders_marker_on_the_selected_row_only() {
+        let repos = repos(&["github.com/a/x", "github.com/a/y"]);
+        let mut state = State::new(&repos, "");
+        let terminal = draw(&mut state, 40, 4);
+        assert!(row_text(&terminal, 1).starts_with("❯ github.com/a/x"));
+        assert!(row_text(&terminal, 2).starts_with("  github.com/a/y"));
+
+        state.handle(key(KeyCode::Down));
+        let terminal = draw(&mut state, 40, 4);
+        assert!(row_text(&terminal, 1).starts_with("  github.com/a/x"));
+        assert!(row_text(&terminal, 2).starts_with("❯ github.com/a/y"));
+    }
+
+    #[test]
+    fn dims_host_and_owner_and_highlights_matches() {
+        let repos = repos(&["github.com/a/apple", "github.com/a/yard"]);
+        let mut state = State::new(&repos, "yard");
+        let terminal = draw(&mut state, 40, 4);
+        let buf = terminal.backend().buffer();
+        // Row 1: "❯ github.com/a/yard"; the name starts at column 15.
+        assert_eq!(buf[(2, 1)].symbol(), "g");
+        assert_eq!(buf[(2, 1)].fg, Color::DarkGray);
+        assert_eq!(buf[(15, 1)].symbol(), "y");
+        assert_eq!(buf[(15, 1)].fg, Color::Green);
+        assert_eq!(buf[(18, 1)].symbol(), "d");
+        assert_eq!(buf[(18, 1)].fg, Color::Green);
+    }
+
+    #[test]
+    fn unmatched_name_keeps_the_default_color() {
+        let repos = repos(&["github.com/a/x"]);
+        let mut state = State::new(&repos, "");
+        let terminal = draw(&mut state, 40, 4);
+        let buf = terminal.backend().buffer();
+        assert_eq!(buf[(2, 1)].fg, Color::DarkGray); // host
+        assert_eq!(buf[(15, 1)].symbol(), "x");
+        assert_eq!(buf[(15, 1)].fg, Color::Reset); // name
+    }
+
+    #[test]
+    fn selected_row_is_bold_on_a_dark_background() {
+        let repos = repos(&["github.com/a/x", "github.com/a/y"]);
+        let mut state = State::new(&repos, "");
+        let terminal = draw(&mut state, 40, 4);
+        let buf = terminal.backend().buffer();
+        assert_eq!(buf[(15, 1)].bg, Color::Indexed(236));
+        assert!(buf[(15, 1)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buf[(15, 2)].bg, Color::Reset);
+        assert!(!buf[(15, 2)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn cursor_sits_after_the_query_in_display_columns() {
+        let repos = repos(&["github.com/a/b"]);
+        let mut state = State::new(&repos, "");
+        type_str(&mut state, "日a");
+        let mut terminal = draw(&mut state, 40, 4);
+        // "> " is two columns, 日 two more, a one.
+        terminal.backend_mut().assert_cursor_position((5, 0));
+    }
+
+    #[test]
+    fn list_scrolls_to_keep_the_cursor_visible() {
+        let names: Vec<String> = (0..10).map(|i| format!("github.com/a/r{i}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let repos = repos(&refs);
+        let mut state = State::new(&repos, "");
+        // Height 3: one prompt row, two list rows.
+        for _ in 0..3 {
+            state.handle(key(KeyCode::Down));
+        }
+        let terminal = draw(&mut state, 40, 3);
+        assert!(row_text(&terminal, 1).starts_with("  github.com/a/r2"));
+        assert!(row_text(&terminal, 2).starts_with("❯ github.com/a/r3"));
+
+        for _ in 0..3 {
+            state.handle(key(KeyCode::Up));
+        }
+        let terminal = draw(&mut state, 40, 3);
+        assert!(row_text(&terminal, 1).starts_with("❯ github.com/a/r0"));
+        assert!(row_text(&terminal, 2).starts_with("  github.com/a/r1"));
+    }
+
+    #[test]
+    fn wide_names_render_and_highlight_by_grapheme() {
+        let repos = repos(&["github.com/a/日本語メモ"]);
+        let mut state = State::new(&repos, "本");
+        let terminal = draw(&mut state, 40, 4);
+        let row = row_text(&terminal, 1);
+        assert!(row.starts_with("❯ github.com/a/日本語メモ"), "{row:?}");
+        let buf = terminal.backend().buffer();
+        // 日 occupies columns 15-16, 本 starts at 17.
+        assert_eq!(buf[(17, 1)].symbol(), "本");
+        assert_eq!(buf[(17, 1)].fg, Color::Green);
+        assert_ne!(buf[(15, 1)].fg, Color::Green);
+    }
 }
