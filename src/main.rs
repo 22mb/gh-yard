@@ -7,6 +7,7 @@ mod spec;
 mod tty;
 
 use std::env;
+use std::io::{self, Write};
 use std::process::ExitCode;
 
 /// 0: success / 1: aborted or nothing found / 2: error
@@ -97,11 +98,21 @@ fn list(args: &[String]) -> Result<u8, String> {
     }
 
     let root = root::resolve()?;
+    let mut out = io::stdout().lock();
     for repo in scan::scan(&root) {
-        if full_path {
-            println!("{}", repo.abs.display());
+        let written = if full_path {
+            writeln!(out, "{}", repo.abs.display())
         } else {
-            println!("{}", repo.rel);
+            writeln!(out, "{}", repo.rel)
+        };
+        // `println!` would panic here, and with panic = "abort" that kills the
+        // process. A reader that stops early (`list | head`) is not an error.
+        if let Err(e) = written {
+            return if e.kind() == io::ErrorKind::BrokenPipe {
+                Ok(EXIT_OK)
+            } else {
+                Err(format!("cannot write to stdout: {e}"))
+            };
         }
     }
     Ok(EXIT_OK)

@@ -7,8 +7,9 @@
 //! zero-repository early exit is checked).
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_gh-yard");
 
@@ -83,6 +84,44 @@ fn list_empty_root_is_ok_and_silent() {
     let out = run(tmp.path(), Some(&root), &["list"]);
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(stdout(&out), "");
+}
+
+#[test]
+fn list_closed_pipe_exits_0_without_panicking() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    // Well over the 64 KiB pipe buffer, so the process is still writing when
+    // the read end goes away; a smaller listing would finish before that.
+    for i in 0..1000 {
+        mkrepo(
+            &root,
+            &format!("github.com/owner-with-a-long-name-{i}/repository-with-a-long-name-{i}"),
+        );
+    }
+
+    let mut child = Command::new(BIN)
+        .arg("list")
+        .env("HOME", tmp.path())
+        .env("GIT_CONFIG_GLOBAL", tmp.path().join("gitconfig-test"))
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("YARD_ROOT", &root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Close the read end without reading, as `head` does once it has enough.
+    drop(child.stdout.take());
+    let mut err = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    let status = child.wait().unwrap();
+
+    assert_eq!(status.code(), Some(0), "stderr: {err}");
+    assert!(!err.contains("panicked"), "stderr: {err}");
 }
 
 #[test]
