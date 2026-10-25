@@ -34,7 +34,8 @@ fn git_config_yard_root() -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-/// Expands `~` and turns a relative path into an absolute one.
+/// Expands `~`, turns a relative path into an absolute one, and folds `.`
+/// and `..` in either case.
 fn normalize(s: &str) -> Result<PathBuf, String> {
     let expanded = if s == "~" {
         home_dir().ok_or_else(|| "cannot determine home directory".to_string())?
@@ -47,7 +48,7 @@ fn normalize(s: &str) -> Result<PathBuf, String> {
     };
 
     if expanded.is_absolute() {
-        return Ok(expanded);
+        return Ok(clean(&expanded));
     }
     let cwd = env::current_dir().map_err(|e| format!("cannot determine current directory: {e}"))?;
     Ok(clean(&cwd.join(expanded)))
