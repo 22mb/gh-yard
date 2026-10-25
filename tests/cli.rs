@@ -132,6 +132,18 @@ fn list_unknown_flag_is_error() {
     assert!(stderr(&out).contains("--bogus"));
 }
 
+#[test]
+fn subcommand_help_prints_usage() {
+    let tmp = tempfile::tempdir().unwrap();
+    for sub in ["list", "get", "create", "root"] {
+        for flag in ["-h", "--help"] {
+            let out = run(tmp.path(), Some(tmp.path()), &[sub, flag]);
+            assert_eq!(out.status.code(), Some(0), "{sub} {flag}");
+            assert!(stdout(&out).contains("Usage:"), "{sub} {flag}");
+        }
+    }
+}
+
 // ---- selector (zero-repository early exit only) ----
 
 #[test]

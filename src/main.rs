@@ -52,6 +52,12 @@ fn run(args: &[String]) -> Result<u8, String> {
             };
             select(query)
         }
+        // Before the per-subcommand parsing: `get --help` would otherwise be
+        // read as a spec and `list --help` as an unknown flag.
+        Some("list" | "get" | "create" | "root") if wants_help(&args[1..]) => {
+            print!("{USAGE}");
+            Ok(EXIT_OK)
+        }
         Some("list") => list(&args[1..]),
         Some("get") => get(&args[1..]),
         Some("create") => create(&args[1..]),
@@ -69,6 +75,10 @@ fn run(args: &[String]) -> Result<u8, String> {
         }
         Some(other) => Err(format!("unknown subcommand: {other}\n\n{USAGE}")),
     }
+}
+
+fn wants_help(args: &[String]) -> bool {
+    args.iter().any(|a| a == "-h" || a == "--help")
 }
 
 fn select(query: &str) -> Result<u8, String> {
