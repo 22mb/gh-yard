@@ -132,6 +132,15 @@ mod tests {
     }
 
     #[test]
+    fn ignores_plain_files_alongside_repositories() {
+        let tmp = tempfile::tempdir().unwrap();
+        mkrepo(tmp.path(), "github.com/foo/bar");
+        fs::write(tmp.path().join("github.com/foo/README"), "").unwrap();
+        fs::write(tmp.path().join("notes.txt"), "").unwrap();
+        assert_eq!(rels(tmp.path()), ["github.com/foo/bar"]);
+    }
+
+    #[test]
     fn does_not_follow_symlinks() {
         let tmp = tempfile::tempdir().unwrap();
         let real = tempfile::tempdir().unwrap();

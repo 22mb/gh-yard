@@ -40,6 +40,53 @@ fn mkrepo(root: &Path, rel: &str) {
     fs::create_dir_all(root.join(rel).join(".git")).unwrap();
 }
 
+// ---- top level ----
+
+#[test]
+fn version_prints_package_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    for flag in ["--version", "-V"] {
+        let out = run(tmp.path(), Some(tmp.path()), &[flag]);
+        assert_eq!(out.status.code(), Some(0), "{flag}");
+        assert_eq!(
+            stdout(&out),
+            format!("gh-yard {}\n", env!("CARGO_PKG_VERSION")),
+            "{flag}"
+        );
+    }
+}
+
+#[test]
+fn top_level_help_prints_usage() {
+    let tmp = tempfile::tempdir().unwrap();
+    for arg in ["-h", "--help", "help"] {
+        let out = run(tmp.path(), Some(tmp.path()), &[arg]);
+        assert_eq!(out.status.code(), Some(0), "{arg}");
+        assert!(stdout(&out).contains("Usage:"), "{arg}");
+    }
+}
+
+#[test]
+fn unknown_subcommand_is_error_with_usage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = run(tmp.path(), Some(tmp.path()), &["frobnicate"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(stderr(&out).contains("unknown subcommand: frobnicate"));
+    assert!(stderr(&out).contains("Usage:"));
+}
+
+#[test]
+fn query_without_a_value_or_with_two_is_error() {
+    // Both fail before the selector could open a terminal.
+    let tmp = tempfile::tempdir().unwrap();
+    for args in [&["-q"][..], &["--query"], &["-q", "a", "b"]] {
+        let out = run(tmp.path(), Some(tmp.path()), args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert_eq!(stdout(&out), "", "{args:?}");
+    }
+}
+
 // ---- list ----
 
 #[test]
@@ -190,6 +237,57 @@ fn root_expands_tilde_in_env() {
 }
 
 #[test]
+fn root_tilde_alone_is_home() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = Command::new(BIN)
+        .arg("root")
+        .env("HOME", tmp.path())
+        .env("GIT_CONFIG_GLOBAL", tmp.path().join("gitconfig-test"))
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("YARD_ROOT", "~")
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&out).trim_end(), tmp.path().to_str().unwrap());
+}
+
+#[test]
+fn root_folds_dotdot_in_a_relative_env_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = Command::new(BIN)
+        .arg("root")
+        .current_dir(tmp.path())
+        .env("HOME", tmp.path())
+        .env("GIT_CONFIG_GLOBAL", tmp.path().join("gitconfig-test"))
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("YARD_ROOT", "sub/../rel")
+        .output()
+        .unwrap();
+    let printed = stdout(&out);
+    let printed = Path::new(printed.trim_end());
+    assert_eq!(printed.file_name().unwrap(), "rel");
+    assert_eq!(
+        printed.parent().unwrap().canonicalize().unwrap(),
+        tmp.path().canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn root_without_home_and_config_is_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = Command::new(BIN)
+        .arg("root")
+        .env_remove("HOME")
+        .env_remove("YARD_ROOT")
+        .env("GIT_CONFIG_GLOBAL", tmp.path().join("gitconfig-test"))
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(stderr(&out).contains("home directory"));
+}
+
+#[test]
 fn root_defaults_to_home_yard() {
     let tmp = tempfile::tempdir().unwrap();
 
@@ -332,6 +430,20 @@ fn get_existing_repo_accepts_url_and_scp_specs() {
 }
 
 #[test]
+fn get_existing_worktree_prints_path_without_cloning() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    let wt = root.join("github.com/cli/wt");
+    fs::create_dir_all(&wt).unwrap();
+    // A worktree keeps its .git as a file; scan and get treat it alike.
+    fs::write(wt.join(".git"), "gitdir: /elsewhere/.git/worktrees/wt\n").unwrap();
+
+    let out = run(tmp.path(), Some(&root), &["get", "cli/wt"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), wt.to_str().unwrap());
+}
+
+#[test]
 fn get_directory_without_dot_git_is_error() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("root");
@@ -395,6 +507,42 @@ fn create_appears_in_list() {
     run(tmp.path(), Some(&root), &["create", "22mb/newrepo"]);
     let out = run(tmp.path(), Some(&root), &["list"]);
     assert_eq!(stdout(&out), "github.com/22mb/newrepo\n");
+}
+
+#[test]
+fn create_accepts_url_and_scp_specs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    for (spec, rel) in [
+        (
+            "https://gitlab.com/group/sub/repo.git",
+            "gitlab.com/group/sub/repo",
+        ),
+        ("git@github.com:22mb/scp.git", "github.com/22mb/scp"),
+    ] {
+        let out = run(tmp.path(), Some(&root), &["create", spec]);
+        assert_eq!(out.status.code(), Some(0), "{spec}: {}", stderr(&out));
+        assert_eq!(stdout(&out).trim_end(), root.join(rel).to_str().unwrap());
+        assert!(root.join(rel).join(".git").is_dir(), "{spec}");
+    }
+}
+
+#[test]
+fn create_leading_dash_component_is_error_and_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("root");
+    fs::create_dir_all(&root).unwrap();
+    let out = run(tmp.path(), Some(&root), &["create", "-foo/bar"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    assert!(!root.join("github.com").exists());
+}
+
+#[test]
+fn create_with_two_specs_is_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = run(tmp.path(), Some(tmp.path()), &["create", "a/b", "c/d"]);
+    assert_eq!(out.status.code(), Some(2));
 }
 
 #[test]
