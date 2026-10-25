@@ -251,6 +251,26 @@ fn root_tilde_alone_is_home() {
 }
 
 #[test]
+fn root_folds_dotdot_in_an_absolute_env_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    for value in ["~/a/../b", &format!("{}/a/./../b", tmp.path().display())] {
+        let out = Command::new(BIN)
+            .arg("root")
+            .env("HOME", tmp.path())
+            .env("GIT_CONFIG_GLOBAL", tmp.path().join("gitconfig-test"))
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("YARD_ROOT", value)
+            .output()
+            .unwrap();
+        assert_eq!(
+            stdout(&out).trim_end(),
+            tmp.path().join("b").to_str().unwrap(),
+            "{value}"
+        );
+    }
+}
+
+#[test]
 fn root_folds_dotdot_in_a_relative_env_path() {
     let tmp = tempfile::tempdir().unwrap();
     let out = Command::new(BIN)
