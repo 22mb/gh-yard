@@ -75,7 +75,7 @@ jobs:
           - name: Linux
             runner: ubuntu-latest
           - name: macOS
-            runner: macos-14
+            runner: macos-26
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     permissions:
@@ -98,10 +98,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-26
             target: aarch64-apple-darwin
             asset: darwin-arm64
-          - runner: macos-14
+          - runner: macos-26
             target: x86_64-apple-darwin
             asset: darwin-amd64
           - runner: ubuntu-latest
